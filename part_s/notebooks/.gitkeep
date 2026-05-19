@@ -1,0 +1,7 @@
+# Place Jupyter notebooks here (run in order):
+# - 01_data_loading.ipynb         → load_and_merge(), basic_clean(), inspect shape/dtypes
+# - 02_data_cleaning.ipynb        → run_cleaning_pipeline(), before/after plots
+# - 03_class_imbalance.ipynb      → class distribution bar chart, imbalance ratios
+# - 04_feature_importance.ipynb   → mutual info + ANOVA rankings heatmap
+# - 05_isolation_forest.ipynb     → train IF, score distributions per class, AUROC
+# - 06_autoencoder.ipynb          → (optional) train autoencoder, compare vs IF

@@ -1,0 +1,5 @@
+# Place raw dataset files here:
+# - Data.csv
+# - Label.csv
+# - CICFlowMeter_out/ (folder)
+# - Readme.txt
