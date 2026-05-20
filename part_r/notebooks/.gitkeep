@@ -1,6 +1,17 @@
+<<<<<<< HEAD
 # Place Jupyter notebooks here:
 # - 01_shap_global_summary.ipynb
 # - 02_domain_attribution_per_class.ipynb
 # - 03_venn_diagram.ipynb
 # - 04_detection_rate_comparison.ipynb
 # - 05_final_evaluation_report.ipynb
+=======
+# Place Jupyter notebooks here (run in order):
+# - 00_label_fix.ipynb            → run_label_fix_pipeline(dry_run=True), then apply
+# - 01_overlap_analysis.ipynb     → run_overlap_analysis() — heatmap + PCA cluster plot
+# - 02_shap_global_summary.ipynb  → load model, compute SHAP, beeswarm plot
+# - 03_domain_attribution.ipynb   → CS% vs DS% per attack class, grouped bar chart
+# - 04_venn_diagram.ipynb         → CS-only / DS-only / Both detection regions
+# - 05_detection_rate_table.ipynb → per-class CS, DS, Fusion detection rates
+# - 06_evaluation_report.ipynb    → final written findings and recommendations
+>>>>>>> 8306ff5 (Initial commit)

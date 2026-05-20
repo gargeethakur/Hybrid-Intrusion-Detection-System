@@ -154,3 +154,76 @@ jupyter notebook
 3. Which attacks are caught exclusively by the DS anomaly score (novel/zero-day) that CS rules miss?
 4. What is the quantified accuracy improvement of the fusion model over either layer alone?
 5. Where should a real-world IDS set the DS anomaly threshold to minimise false positives while catching zero-days?
+<<<<<<< HEAD
+=======
+
+---
+
+## Problem Fix 1 — Labelling Errors (assigned to Part R)
+
+> *Port scan flows are mislabelled. Documented by Lanvin et al. 2023 — needs fixing before training.*
+
+**File:** `src/data_fixes/label_fix.py`  
+**Run first:** before ANY other processing — this is the very first step in the overall pipeline  
+**Exports to:** `shared/data/processed/label_fixed_data.csv` + `label_fix_report.json`
+
+### What it does
+
+| Step | Function | Description |
+|---|---|---|
+| Drop artefacts | `drop_artefact_flows()` | Removes zero/negative duration flows (CICFlowMeter bugs) |
+| Fix duplicates | `fix_duplicate_timestamps()` | Resolves same-timestamp flows with conflicting labels |
+| Detect portscans | `detect_portscan_candidates()` | Flags flows that behaviourally match port scans but are mislabelled |
+| Relabel | `relabel_portscan_flows()` | Moves detected flows to Reconnaissance (label 7) |
+| Pipeline | `run_label_fix_pipeline()` | Runs all steps; `dry_run=True` to preview changes |
+
+### Run order with Part S
+```
+Part R: run_label_fix_pipeline()    ← Step 0 (before everything)
+Part S: run_cleaning_pipeline()     ← Step 1
+Part S: run_balancing_pipeline()    ← Step 2
+Part G: apply_all_rules()           ← Step 3
+Part G: train fusion model          ← Step 4
+Part R: SHAP analysis               ← Step 5
+```
+
+---
+
+## Problem Fix 3 — Class Overlap Analysis (assigned to Part R)
+
+> *Multiple classes share similar feature distributions, making boundaries hard to learn.*
+
+**File:** `src/data_fixes/overlap_analysis.py`  
+**Run after:** label fix and cleaning (needs clean data)  
+**Outputs:** heatmap, PCA plot, overlap report for Part G to read
+
+### What it does
+
+| Step | Function | Output |
+|---|---|---|
+| Fisher separability | `compute_pairwise_separability()` | Matrix of J scores per class pair |
+| Heatmap | `plot_separability_heatmap()` | `class_separability_heatmap.png` |
+| Worst pairs | `find_most_overlapping_pairs()` | `overlapping_pairs.csv` |
+| PCA clusters | `plot_pca_clusters()` | `pca_class_clusters.png` |
+| LDA global score | `compute_lda_separability()` | Overall linear separability ratio |
+| Report | `generate_overlap_report()` | `overlap_report.md` → shared with Part G |
+
+### Key outputs for other parts
+- **→ Part G:** `overlap_report.md` tells which class pairs need extra CS rule differentiation
+- **→ Part G:** `overlapping_pairs.csv` informs which attack types XGBoost will most likely confuse
+- **→ Part R SHAP (Step 5):** overlapping classes will show similar SHAP patterns — document as a finding
+
+---
+
+## Updated Notebook Order (Part R)
+
+| Notebook | Step |
+|---|---|
+| `00_label_fix.ipynb` | `run_label_fix_pipeline(dry_run=True)` then apply ← new |
+| `01_overlap_analysis.ipynb` | `run_overlap_analysis()` — heatmap + PCA ← new |
+| `02_shap_global_summary.ipynb` | Load model, SHAP beeswarm |
+| `03_domain_attribution_per_class.ipynb` | CS% vs DS% per attack class |
+| `04_venn_diagram.ipynb` | Detection regions |
+| `05_detection_rate_comparison.ipynb` | Per-class rates table |
+| `06_final_evaluation_report.ipynb` | Written findings |
+>>>>>>> 8306ff5 (Initial commit)

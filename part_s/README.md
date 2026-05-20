@@ -135,3 +135,52 @@ jupyter notebook
 2. How severe is class imbalance and what does it mean for model training?
 3. Which traffic patterns are statistically unusual purely from a data perspective?
 4. Does the `ds_anomaly_score` correctly flag known attacks even without labels?
+<<<<<<< HEAD
+=======
+
+---
+
+## Problem Fix 2 — Class Imbalance (assigned to Part S)
+
+> *Worms: 174 records vs Benign: 2.2M — model will ignore rare classes without SMOTE.*
+
+**File:** `src/eda/imbalance.py`  
+**Run after:** cleaning pipeline (`cleaner.py`)  
+**Run before:** Part G Step 4 (fusion model training)
+
+### What it does
+
+| Step | Function | Description |
+|---|---|---|
+| Diagnose | `diagnose_imbalance()` | Prints class counts, %, imbalance ratio per class |
+| SMOTE | `apply_smote()` | Oversamples classes below `min_samples` (default 1000) |
+| Undersample | `undersample_majority()` | Caps Benign at `max_majority` (default 100,000) |
+| Pipeline | `run_balancing_pipeline()` | Runs all 3 steps in order |
+| Export | `export_balanced()` | Saves to `shared/data/processed/balanced_data.csv` |
+
+### Recommended settings for UNSW-NB15
+```python
+run_balancing_pipeline(
+    df,
+    smote_min_samples = 1000,    # Worms (174) and Shellcode (1511) both get boosted
+    undersample_max   = 100_000, # Benign reduced from 2.2M to manageable size
+)
+```
+
+### Notebook
+Add `02b_class_imbalance_fix.ipynb` to the notebooks folder after `02_data_cleaning.ipynb`.
+
+---
+
+## Updated Notebook Order (Part S)
+
+| Notebook | Step |
+|---|---|
+| `01_data_loading.ipynb` | Load + basic clean |
+| `02_data_cleaning.ipynb` | `run_cleaning_pipeline()` |
+| `02b_class_imbalance_fix.ipynb` | `run_balancing_pipeline()` ← new |
+| `03_class_imbalance_report.ipynb` | Before/after distribution charts |
+| `04_feature_importance.ipynb` | Mutual info + ANOVA rankings |
+| `05_isolation_forest.ipynb` | Anomaly scoring |
+| `06_autoencoder.ipynb` | (optional) |
+>>>>>>> 8306ff5 (Initial commit)
