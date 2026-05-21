@@ -2,190 +2,218 @@
 
 ## Overview
 
-Part G covers **Step 2 and Step 4** of the project pipeline: writing explicit cybersecurity (CS) detection rules inspired by real-world IDS systems (like Snort), and building the **fusion ML model** that combines CS rule outputs with DS anomaly scores into a final multi-class classifier.
+Part G owns **Step 2 and Step 4** of the project pipeline.
 
-This part sits at the intersection of cybersecurity domain knowledge and machine learning engineering.
-
----
-
-## Datasets & Inputs
-
-| Source | File | Description |
+| Step | Task | File |
 |---|---|---|
-| Raw | `Data.csv` | Raw network flow features |
-| Raw | `Label.csv` | Ground-truth labels (0–9) |
-| Raw | `CICFlowMeter_out` | Additional CICFlowMeter features |
-| Part S | `features_with_ds.csv` | Features + `ds_anomaly_score` (required before Step 4) |
-| Part S | `feature_rankings.csv` | Top features by mutual info / ANOVA (for model input selection) |
+| Step 2 | CS Rule Layer — Snort-style detection rules | `src/cs_rules/rules.py`, `src/cs_rules/evaluate.py` |
+| Step 4 | Fusion ML Model — XGBoost/RF on all signals | `src/fusion_model/train.py` |
 
-### Label Reference (from `Readme.txt`)
-| Label | Class |
-|---|---|
-| 0 | Benign |
-| 1 | Analysis |
-| 2 | Backdoor |
-| 3 | DoS |
-| 4 | Exploits |
-| 5 | Fuzzers |
-| 6 | Generic |
-| 7 | Reconnaissance |
-| 8 | Shellcode |
-| 9 | Worms |
+**Step 2 can start on Day 1** — no dependencies on any other part.
+Read `part_r/outputs/overlap_report.md` when Part R delivers it before finalising rule thresholds.
+
+**Step 4 requires:**
+- `features_with_ds.csv` from Part S (Step 3)
+- `feature_rankings.csv` from Part S (Step 1)
+- `balanced_data.csv` from Part S (Phase 0c)
 
 ---
 
-## Responsibilities
-
-### Step 2 — Rule-Based Detection Layer (CS Rules)
-
-> *"Using known attack signatures (Snort-style rules), write explicit CS rules."*
-
-These rules are **hand-coded domain knowledge** — not learned from data. They simulate what a real-world IDS (Intrusion Detection System) would fire on known attack patterns.
-
-#### 2.1 Rule Design
-
-Implement the following CS rules as Python functions applied row-wise to the dataframe:
-
-**CS Rule 1 — DDoS Check**
-```
-IF SYN rate > 1000 packets/sec THEN cs_ddos_flag = 1
-```
-- Map to CICFlowMeter columns: `SYN Flag Count`, `Flow Duration`, `Flow Packets/s`
-- Primary target labels: DoS (3), Generic (6)
-
-**CS Rule 2 — Port Scan Check**
-```
-IF unique destination ports > 100/sec THEN cs_portscan_flag = 1
-```
-- Map to CICFlowMeter columns: `Destination Port`, `Flow Duration`
-- Derive: unique dst ports contacted per source IP per time window
-- Primary target labels: Reconnaissance (7), Analysis (1)
-
-**CS Rule 3 — Small Packet Flood Check**
-```
-IF packet size < 60 bytes AND rate > 500 packets/sec THEN cs_flood_flag = 1
-```
-- Map to CICFlowMeter columns: `Average Packet Size`, `Flow Packets/s`
-- Primary target labels: Fuzzers (5), DoS (3)
-
-#### 2.2 Additional Rules (Recommended)
-
-Extend coverage for remaining attack classes:
-
-| Rule | Condition | Target Class |
-|---|---|---|
-| `cs_exploit_flag` | High payload size + unusual protocol flags | Exploits (4) |
-| `cs_backdoor_flag` | Long-duration low-rate flows on unusual ports | Backdoor (2) |
-| `cs_shellcode_flag` | Very small flow byte count + non-HTTP port | Shellcode (8) |
-| `cs_worm_flag` | High unique destination IPs from same source | Worms (9) |
-
-#### 2.3 Rule Evaluation (Pre-Fusion)
-- Compute per-rule precision, recall, F1 against true labels
-- Identify false positive rate for each rule on Benign traffic
-- Document which attack classes have **no CS rule coverage** (these will rely on DS layer)
-- Export: `cs_rule_evaluation.csv`
-
-#### 2.4 Feature Engineering: CS Flag Columns
-After applying all rules, the dataframe gains new binary columns:
-```
-cs_ddos_flag | cs_portscan_flag | cs_flood_flag | cs_exploit_flag | cs_backdoor_flag | ...
-```
-Export full dataframe as `features_with_cs.csv` — this is the input to Step 4.
+## Label Mapping (from Readme.txt)
+| Label | Class | Label | Class |
+|---|---|---|---|
+| 0 | Benign | 5 | Fuzzers |
+| 1 | Analysis | 6 | Generic |
+| 2 | Backdoor | 7 | Reconnaissance |
+| 3 | DoS | 8 | Shellcode |
+| 4 | Exploits | 9 | Worms |
 
 ---
 
-### Step 4 — Fusion ML Model
+## Step 2 — CS Rule Layer ← Can Start Day 1
 
-> *"XGBoost / Random Forest takes CS rule outputs + DS anomaly scores as features. ML learns which combination is most predictive — neither domain is hardcoded as better."*
+> **Run:** Day 1 — no dependencies
+> **Files:** `src/cs_rules/rules.py`, `src/cs_rules/evaluate.py`
+> **Output:** `shared/outputs/features_with_cs.csv`, `outputs/cs_rule_evaluation.csv`
 
-#### 4.1 Feature Matrix Construction
+These rules are **hand-coded domain knowledge — NOT learned from data.**
+They simulate what a real-world IDS (like Snort) fires on known attack patterns.
 
-Combine all signal sets into one feature matrix:
+### Before writing rules — read Part R's overlap report
+
+When Part R delivers `part_r/outputs/overlap_report.md`, read it before finalising
+thresholds. The overlap analysis tells you which class pairs share similar feature
+distributions so you can write rules that better differentiate them.
+
+### The 7 CS Rules
+
+| Rule | Flag Column | Condition | Target Classes |
+|---|---|---|---|
+| Rule 1 | `cs_ddos_flag` | SYN rate > 1000 pkt/sec | DoS (3), Generic (6) |
+| Rule 2 | `cs_portscan_flag` | unique dst ports > 100/sec | Reconnaissance (7), Analysis (1) |
+| Rule 3 | `cs_flood_flag` | avg pkt size < 60 bytes AND rate > 500/sec | Fuzzers (5), DoS (3) |
+| Rule 4 | `cs_exploit_flag` | payload near MTU OR URG flags set | Exploits (4) |
+| Rule 5 | `cs_backdoor_flag` | long duration + low rate + non-standard port | Backdoor (2) |
+| Rule 6 | `cs_shellcode_flag` | very small total bytes + non-HTTP port | Shellcode (8) |
+| Rule 7 | `cs_worm_flag` | high rate + tiny packets (scanning proxy) | Worms (9) |
+
+`cs_any_flag` is added automatically — it equals the max of all 7 flags per row.
+
+```python
+from src.cs_rules.rules import apply_all_rules
+
+df = apply_all_rules(df)
+# Adds: cs_ddos_flag, cs_portscan_flag, cs_flood_flag,
+#       cs_exploit_flag, cs_backdoor_flag, cs_shellcode_flag,
+#       cs_worm_flag, cs_any_flag
+```
+
+### Rule Evaluation
+
+```python
+from src.cs_rules.evaluate import evaluate_rules
+
+report = evaluate_rules(df, label_col="label")
+# Per-rule: precision, recall, F1, false positive count on Benign
+report.to_csv("outputs/cs_rule_evaluation.csv", index=False)
+```
+
+**Document which attack classes have zero CS rule coverage** — those classes
+will rely entirely on the DS anomaly score in the fusion model.
+
+### Export
+
+```python
+df.to_csv("../../shared/outputs/features_with_cs.csv", index=False)
+```
+
+---
+
+## Step 4 — Fusion ML Model
+
+> **Run after:** Part S delivers `features_with_ds.csv` AND `feature_rankings.csv`
+> **File:** `src/fusion_model/train.py`
+> **Output:** `shared/outputs/fusion_model.pkl`, `shared/outputs/predictions.csv`, `outputs/confusion_matrix.png`
+
+Trains XGBoost and Random Forest on the combined signal set:
+original features + cs_* flags + ds_anomaly_score.
+The model learns which combination is most predictive — neither domain is hardcoded as better.
+
+### 4.1 Feature Matrix
 
 ```
-[Original features from Data.csv]
-+ [ds_anomaly_score from Part S]
-+ [cs_ddos_flag, cs_portscan_flag, cs_flood_flag, ... from Step 2]
+[Original features from balanced_data.csv]
++ [ds_anomaly_score]          ← from Part S Step 3
++ [cs_ddos_flag, cs_portscan_flag, cs_flood_flag, ...]   ← from Step 2
 = Final feature matrix X
 ```
 
-- Use `feature_rankings.csv` from Part S to optionally restrict to top-N original features
-- Target vector `y` = labels from `Label.csv` (10 classes)
+Use `feature_rankings.csv` from Part S to optionally keep only top-N original features.
 
-#### 4.2 Train/Test Split
-- Stratified split: 70% train / 15% validation / 15% test
-- Preserve class distribution across splits (critical due to imbalance)
-- Apply SMOTE or class_weight balancing as recommended by Part S
+### 4.2 Train/Test Split
 
-#### 4.3 Model Training
+- Stratified 70% train / 15% validation / 15% test
+- Preserves class distribution across all splits (critical given imbalance)
 
-**Primary: XGBoost Classifier**
+### 4.3 Models
+
+**Primary — XGBoost:**
 ```python
 XGBClassifier(
     n_estimators=300,
     max_depth=6,
     learning_rate=0.1,
-    use_label_encoder=False,
-    eval_metric='mlogloss',
-    scale_pos_weight=...  # handle imbalance
+    subsample=0.8,
+    colsample_bytree=0.8,
+    eval_metric="mlogloss",
+    random_state=42,
+    n_jobs=-1,
 )
 ```
 
-**Secondary: Random Forest Classifier**
+**Secondary — Random Forest:**
 ```python
 RandomForestClassifier(
     n_estimators=200,
-    class_weight='balanced',
-    max_features='sqrt'
+    class_weight="balanced",
+    max_features="sqrt",
+    random_state=42,
+    n_jobs=-1,
 )
 ```
 
-- Train both, compare on validation set, select best for SHAP (Part R)
-- Use `cross_val_score` (5-fold stratified) for robust evaluation
+Train both, compare on validation set, use the better one for SHAP in Part R.
 
-#### 4.4 Hyperparameter Tuning
-- `GridSearchCV` or `Optuna` for XGBoost hyperparameter search
-- Key parameters to tune: `max_depth`, `n_estimators`, `subsample`, `colsample_bytree`
+### 4.4 Hyperparameter Tuning
 
-#### 4.5 Model Evaluation
-Produce the following on the test set:
+Use Optuna or `GridSearchCV` to tune `max_depth`, `n_estimators`, `subsample`,
+`colsample_bytree` on the validation set.
+
+### 4.5 Ablation Study
+
+Train 4 versions and compare macro F1 scores:
+
+| Version | Features used |
+|---|---|
+| (a) Features only | Original features — no CS flags, no DS score |
+| (b) CS only | CS flags only |
+| (c) DS only | ds_anomaly_score only |
+| (d) Full fusion | Original features + CS flags + DS score |
+
+This directly answers: what does each domain contribute to the final accuracy?
+
+### 4.6 Evaluation
+
+On the test set, produce:
 - Classification report (precision, recall, F1 per class)
-- Confusion matrix heatmap (10×10)
-- Macro and weighted F1 scores
+- 10×10 confusion matrix heatmap
 - ROC-AUC per class (one-vs-rest)
-- Compare: Original features only vs CS-only vs DS-only vs Fusion (ablation study)
 
-#### 4.6 Prediction Export
-- Export `predictions.csv` with columns: `true_label`, `predicted_label`, `confidence`, all CS flags, `ds_anomaly_score`
-- Save trained model: `fusion_model.pkl`
+### 4.7 Export
+
+```python
+# Save model for Part R SHAP analysis
+joblib.dump(model, "../../shared/outputs/fusion_model.pkl")
+
+# predictions.csv must include these columns for Part R:
+# true_label, predicted_label, confidence,
+# all cs_* flag columns, ds_anomaly_score
+predictions.to_csv("../../shared/outputs/predictions.csv", index=False)
+```
 
 ---
+
+## Notebook Run Order
+
+| Notebook | Step | What to do |
+|---|---|---|
+| `01_cs_rule_development.ipynb` | Step 2 | Apply each rule, check how many rows each fires on, check false positive rate on Benign |
+| `02_rule_evaluation.ipynb` | Step 2 | `evaluate_rules()` — precision/recall/F1 table, document gaps |
+| `03_fusion_model_training.ipynb` | Step 4 | Build feature matrix, train XGBoost + RF, compare on validation set |
+| `04_ablation_study.ipynb` | Step 4 | Train 4 versions, bar chart of macro F1 for each |
+| `05_confusion_matrix.ipynb` | Step 4 | 10×10 confusion matrix heatmap + ROC-AUC per class |
+
+---
+
+## Inputs Required from Other Parts
+
+| File | From | Needed for |
+|---|---|---|
+| `overlap_report.md` | Part R — Phase 0d | Step 2 — read before finalising rule thresholds |
+| `balanced_data.csv` | Part S — Phase 0c | Step 4 — training data |
+| `feature_rankings.csv` | Part S — Step 1 | Step 4 — feature selection |
+| `features_with_ds.csv` | Part S — Step 3 | Step 4 — DS anomaly score column |
 
 ## Deliverables
 
-| File | Description |
-|---|---|
-| `cs_rules.py` | Python module with all CS rule functions |
-| `cs_rule_evaluation.csv` | Per-rule precision/recall/F1 on test data |
-| `features_with_cs.csv` | Data.csv + all CS flag columns |
-| `fusion_model.ipynb` | Training notebook with all ablation experiments |
-| `fusion_model.pkl` | Saved final model (for Part R SHAP) |
-| `predictions.csv` | Per-row predictions + all flag columns |
-| `confusion_matrix.png` | 10×10 confusion matrix heatmap |
-| `model_evaluation.md` | Written model performance summary |
-
----
-
-## Handoff / Dependencies
-
-**Part G depends on:**
-- ✅ Part S: `features_with_ds.csv` and `feature_rankings.csv` (needed before Step 4)
-
-**Part G delivers to:**
-- → Part R: `fusion_model.pkl`, `features_with_cs.csv`, `predictions.csv`
-
-**Step 2 (CS Rules) can start immediately** — no dependency on Part S.  
-**Step 4 (Fusion Model) starts after** Part S delivers `features_with_ds.csv`.
+| File | Saved to | Consumed by |
+|---|---|---|
+| `features_with_cs.csv` | `shared/outputs/` | Part G Step 4, Part R Step 5 |
+| `cs_rule_evaluation.csv` | `outputs/` | Final report |
+| `fusion_model.pkl` | `shared/outputs/` | Part R Step 5 (SHAP) |
+| `predictions.csv` | `shared/outputs/` | Part R Step 5 |
+| `confusion_matrix.png` | `outputs/` | Final report |
+| `model_evaluation.md` | `outputs/` | Final report |
 
 ---
 
@@ -193,10 +221,10 @@ Produce the following on the test set:
 
 ```
 pandas, numpy
-scikit-learn (RandomForestClassifier, train_test_split, StratifiedKFold, SMOTE)
+scikit-learn (train_test_split, StratifiedKFold, classification_report)
 xgboost (XGBClassifier)
-imbalanced-learn (SMOTE, RandomUnderSampler)
-optuna or sklearn GridSearchCV (hyperparameter tuning)
+imbalanced-learn (SMOTE — if additional balancing needed)
+optuna or sklearn GridSearchCV
 matplotlib, seaborn (confusion matrix, evaluation plots)
 joblib (model serialisation)
 jupyter notebook
@@ -204,10 +232,10 @@ jupyter notebook
 
 ---
 
-## Key Questions This Part Must Answer
+## Key Questions Part G Must Answer
 
-1. Which CS rules have the highest precision and which have the highest false positive rate on Benign traffic?
+1. Which CS rules have the highest precision and which have the highest false positive rate on Benign?
 2. Which attack classes have zero CS rule coverage (fully reliant on DS anomaly score)?
-3. Does the fusion model (CS + DS + features) outperform a model trained on features alone?
+3. Does the fusion model outperform a model trained on original features alone?
 4. In the ablation study, what is the marginal gain of adding CS flags vs DS score individually?
-5. Which classes does the model confuse most often and why (from the confusion matrix)?
+5. Which classes does the model confuse most often (from the confusion matrix)?
